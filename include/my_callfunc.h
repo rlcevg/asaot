@@ -32,12 +32,27 @@ void hack()
     asSSystemFunctionInterface *sysFunc = descr->sysFuncIntf;
 
     int callConv = sysFunc->callConv;
+    bool useFallback = false;
     int      popSize           = 0;
     func.m_output += "{\n";
     if( callConv == ICC_GENERIC_FUNC || callConv == ICC_GENERIC_METHOD )
     {
         char buf[128];
         snprintf(buf, 128, "l_sp += context->CallGeneric(%d, objectPointer);\n", __id);
+        func.m_output += buf;
+        goto goto_label;
+    }
+
+    useFallback = descr->returnType.IsObject() || descr->returnType.IsFuncdef() || callConv >= ICC_THISCALL_OBJLAST;
+    for( asUINT n = 0; n < descr->parameterTypes.GetLength() && !useFallback; n++ )
+    {
+        if( descr->parameterTypes[n].IsObject() || descr->parameterTypes[n].IsFuncdef() )
+            useFallback = true;
+    }
+    if( useFallback )
+    {
+        char buf[128];
+        snprintf(buf, 128, "l_sp += CallSystemFunction(%d, context);\n", __id);
         func.m_output += buf;
         goto goto_label;
     }
