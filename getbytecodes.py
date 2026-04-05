@@ -24,6 +24,13 @@ import os
 import re
 import sys
 
+out = open(sys.argv[2], "w") if len(sys.argv) > 2 else sys.stdout
+
+
+def emit(line=""):
+    out.write(line + "\n")
+
+
 as_context_cpp = "%s/source/as_context.cpp" % sys.argv[1]
 angelscript_h = "%s/include/angelscript.h" % sys.argv[1]
 
@@ -42,6 +49,7 @@ callscriptre  = re.compile(r"(m_regs\.stackFramePointer\s*=\s*l_fp;\s+?)"\
                             "(l_\w+\s+=\s*m_regs\.\w+Pointer;)[\s\n\r]+"\
                             "((.*?if.*?)(return;))", re.DOTALL)
 callsystemre  = re.compile(r"l_sp\s*\+=\s*CallSystemFunction\(\s*(\w+)\s*,\s*(\w+)\s*,\s*(\w+)\s*\);")
+callsystemre2 = re.compile(r"l_sp\s*\+=\s*CallSystemFunction\(\s*(\w+)\s*,\s*(\w+)\s*\);")
 
 
 retre = re.compile(r"([\t ]+)(PopCallState\(\);).*?l_sp\s*\+=\s*(.*?);", re.DOTALL)
@@ -64,41 +72,46 @@ def gettypeprintf(macro):
     return "%d"
 
 
-bytecodes = re.findall(r"case\s+(a\w+):(.*?)(?=case\s+\w+:)", data, re.DOTALL)
-print "#include <angelscript.h>"
-print "#include <as_scriptengine.h>"
-print "#include <stdio.h>"
-print "#include <assert.h>"
-print "#include <math.h>"
-print "#include <as_callfunc.h>"
-print "#include \"AOTCompiler.h\""
-print ""
-print "#define ASSERT assert"
-print "#define asASSERT(x) "
-print "#define BUFSIZE 512 "
-print ""
-print "static unsigned int callsyscount = 0;"
-print "void AOTCompiler::ProcessByteCode(asDWORD *byteCode, asUINT offset, asEBCInstr op, AOTFunction &func)"
-print "{"
-print "    switch (op)"
-print "    {"
+def parse_instructions(source):
+    matches = list(re.finditer(r"^\s*INSTRUCTION\((asBC_[^)]+)\):", source, re.MULTILINE))
+    instructions = []
+    for idx, match in enumerate(matches):
+        start = match.end()
+        end = matches[idx + 1].start() if idx + 1 < len(matches) else len(source)
+        body = source[start:end]
+        instructions.append((match.group(1), body))
+    return instructions
+
+
+bytecodes = parse_instructions(data)
+emit("#include <angelscript.h>")
+emit("#include <as_scriptengine.h>")
+emit("#include <stdio.h>")
+emit("#include <assert.h>")
+emit("#include <math.h>")
+emit("#include <as_callfunc.h>")
+emit("#include \"AOTCompiler.h\"")
+emit()
+emit("#define ASSERT assert")
+emit("#define asASSERT(x) ")
+emit("#define BUFSIZE 512 ")
+emit()
+emit("static unsigned int callsyscount = 0;")
+emit("void AOTCompiler::ProcessByteCode(asDWORD *byteCode, asUINT offset, asEBCInstr op, AOTFunction &func)")
+emit("{")
+emit("    switch (op)")
+emit("    {")
 
 for bytecode in bytecodes:
     if bytecode[0] == "asBC_JitEntry":
         continue
 
-    if bytecode[1].count("break;") != 1:
-        print "====================================="
-        print bytecode[0]
-        print bytecode[1]
-        raise Exception("Code generation failed as there are more or less breaks than expected")
-
-
-    print "        case %s:" % bytecode[0]
-    print "        {"
-    print "            func.m_output += \"\t\t// %s\\n\";" % bytecode[0]
+    emit("        case %s:" % bytecode[0])
+    emit("        {")
+    emit("            func.m_output += \"\t\t// %s\\n\";" % bytecode[0])
 
     data = bytecode[1]
+    data = re.sub(r"^\s*NEXT_INSTRUCTION\(\);\s*$", "", data, flags=re.MULTILINE)
     data = callscriptre.sub(r"""\1\3
 \2
 \3asCScriptFunction *__func = \6;
@@ -111,7 +124,7 @@ for bytecode in bytecodes:
                 func.m_output += "\3asDWORD * expected = l_bc;\\n";                                                                __RAW__
 \12
                 func.m_output += "\3    __PLACEHOLDER2__\\n";                                                                      __RAW__
-                func.m_output += "\3if (__func->jitFunction == " + GetAOTName(asfunc) + ")\\n";                                    __RAW__
+                func.m_output += "\3if (__func->GetJITFunction() == " + GetAOTName(asfunc) + ")\\n";                              __RAW__
                 func.m_output += "\3{\\n";                                                                                         __RAW__
                 func.m_output += "\3    " + GetAOTName(asfunc) + "(registers, 0);\\n";                                             __RAW__
                 func.m_output += "\3}\\n";                                                                                         __RAW__
@@ -130,7 +143,15 @@ for bytecode in bytecodes:
 
     if bytecode[0] == "asBC_CALLSYS":
         match = callsystemre.search(data)
-        idx = match.group(1)
+        if match:
+            idx = match.group(1)
+            object_pointer = match.group(3)
+        else:
+            match = callsystemre2.search(data)
+            if not match:
+                raise Exception("CallSystemFunction pattern not found for %s" % bytecode[0])
+            idx = match.group(1)
+            object_pointer = "0"
         if not re.search(r"asBC_\w+ARG", idx):
             m2 = re.search(r"%s\s*=\s*(asBC_\w+ARG.*?);" % idx, data);
             if not m2:
@@ -138,8 +159,18 @@ for bytecode in bytecodes:
             idx = m2.group(1)
         idx = idx.replace("l_bc", "byteCode")
 
-        data = "{\nvoid *objectPointer = %s;\n%s}\n" % (match.group(3), data)
+        data = "{\nvoid *objectPointer = %s;\n%s}\n" % (object_pointer, data)
         data = callsystemre.sub("""
+            char __tmp[128];                                         __RAW__
+            snprintf(__tmp, 128, "callsys_%%d_end", callsyscount++); __RAW__
+            std::string UNIQUE_CALLSYS_END_LABEL(__tmp);             __RAW__
+            #define __id %s                                          __RAW__
+            #define goto_label %s_end                                __RAW__
+            #include "my_callfunc.h"                                 __RAW__
+            #undef goto_label                                        __RAW__
+            #undef __id                                              __RAW__
+            """ % (idx, bytecode[0]), data)
+        data = callsystemre2.sub("""
             char __tmp[128];                                         __RAW__
             snprintf(__tmp, 128, "callsys_%%d_end", callsyscount++); __RAW__
             std::string UNIQUE_CALLSYS_END_LABEL(__tmp);             __RAW__
@@ -176,14 +207,14 @@ for bytecode in bytecodes:
 
         if "__RAW__" in line:
             line = line.replace("__RAW__", "")
-            print line
+            emit(line)
             continue
 
         line = line.replace("%", "%%")
 
         if "return" in line:
             line =  """            func.m_output += "%sgoto " + func.m_name + "_end;\\n";""" % line.replace("return;", "")
-            print line
+            emit(line)
             continue
 
         line = line.replace("m_", "context->m_")
@@ -199,35 +230,38 @@ for bytecode in bytecodes:
             if "PTR" in m.group(1):
                 continue
             if count == 0:
-                print "            {"
-            print "                %s aottmp%d = %s(byteCode%s);" % (gettypename(m.group(1)), count, m.group(1), m.group(2))
+                emit("            {")
+            emit("                %s aottmp%d = %s(byteCode%s);" % (gettypename(m.group(1)), count, m.group(1), m.group(2)))
             line = line.replace(m.string[m.start(1):m.end(2)+1], gettypeprintf(m.group(1)))
             count += 1
 
         if jump:
-            print "            {"
-            print "                unsigned long target = asBC_INTARG(byteCode)+2 + offset;"
-            print "                func.m_output += \"                {\\n\";"
+            emit("            {")
+            emit("                unsigned long target = asBC_INTARG(byteCode)+2 + offset;")
+            emit("                func.m_output += \"                {\\n\";")
         if count == 0:
-            print "            func.m_output += \"%s\\n\";" % line
+            emit("            func.m_output += \"%s\\n\";" % line)
         else:
-            print "                char aotbuf[BUFSIZE];"
-            print "                snprintf(aotbuf, BUFSIZE, \"%s\\n\", %s);" % (line, ",".join(["aottmp%d" % d for d in range(count)]))
-            print "                func.m_output += aotbuf;"
+            emit("                char aotbuf[BUFSIZE];")
+            emit("                snprintf(aotbuf, BUFSIZE, \"%s\\n\", %s);" % (line, ",".join(["aottmp%d" % d for d in range(count)])))
+            emit("                func.m_output += aotbuf;")
         if jump:
-            print "                char aotbuf2[BUFSIZE];"
-            print "                snprintf(aotbuf2, BUFSIZE, \"                    goto bytecodeoffset_%lu;\\n\", target);"
-            print "                func.m_output += aotbuf2;"
-            print "                func.m_output += \"                }\\n\";"
-            print "            }"
+            emit("                char aotbuf2[BUFSIZE];")
+            emit("                snprintf(aotbuf2, BUFSIZE, \"                    goto bytecodeoffset_%lu;\\n\", target);")
+            emit("                func.m_output += aotbuf2;")
+            emit("                func.m_output += \"                }\\n\";")
+            emit("            }")
         if count != 0:
-            print "            }"
+            emit("            }")
 
-    print "            break;"
-    print "        }"
+    emit("            break;")
+    emit("        }")
 
-print "        default:"
-print "            ASSERT(\"can't handle that opcode...\");"
-print "            break;"
-print "    }"
-print "}"
+emit("        default:")
+emit("            ASSERT(\"can't handle that opcode...\");")
+emit("            break;")
+emit("    }")
+emit("}")
+
+if out is not sys.stdout:
+    out.close()

@@ -29,6 +29,7 @@
 
 #include "AOTCompiler.h"
 #include <stdio.h>
+#include <cctype>
 
 AOTCompiler::AOTCompiler(AOTLinker *linker)
 : m_linker(linker)
@@ -44,21 +45,13 @@ std::string add(const char *toadd)
     std::string ret;
     if (toadd)
     {
-        std::string tmp = toadd;
-        int off;
-        while ((off = tmp.find(':')) != -1)
+        for (const unsigned char ch : std::string(toadd))
         {
-            tmp = tmp.replace(off, 1, 1, '_');
+            if (std::isalnum(ch) || ch == '_')
+                ret += static_cast<char>(ch);
+            else
+                ret += '_';
         }
-        while ((off = tmp.find('.')) != -1)
-        {
-            tmp = tmp.replace(off, 1, 1, '_');
-        }
-        while ((off = tmp.find('/')) != -1)
-        {
-            tmp = tmp.replace(off, 1, 1, '_');
-        }
-        ret += tmp;
     }
     return ret;
 }
@@ -71,16 +64,14 @@ std::string AOTCompiler::GetAOTName(asIScriptFunction *function)
     name += "_";
     name += add(function->GetNamespace());
     name += "_";
-    name += add(function->GetScriptSectionName());
-    name += "_";
     name += add(function->GetObjectName());
     name += "_";
-    if (function->GetName())
+    if (function->GetDeclaration())
     {
-        std::string fname = function->GetName();
+        std::string fname = function->GetDeclaration(true, true, false);
         if (fname[0] == '~')
             fname = "__destructor__" + fname.substr(1);
-        name += fname;
+        name += add(fname.c_str());
     }
     name += "_";
     return name;
@@ -154,8 +145,7 @@ void AOTCompiler::SaveCode(asIBinaryStream *stream)
     output += "#include <as_scriptobject.h>\n";
     output += "#include <as_texts.h>\n";
     output += "#include <aot_config.h>\n";
-    // TODO: is there a better way to handle this? What if it changes?
-    output += "\nstatic const int CALLSTACK_FRAME_SIZE = 5;\n\n";
+    output += "\n";
 
     for (std::vector<AOTFunction>::iterator i = m_functions.begin(); i < m_functions.end(); i++)
     {

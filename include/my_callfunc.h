@@ -108,7 +108,7 @@ void hack()
     else
     {
         // Set the object type of the reference held in the register
-        func.m_output += "context->m_regs.objectType = descr->returnType.GetObjectType();\n";
+        func.m_output += "context->m_regs.objectType = descr->returnType.GetTypeInfo();\n";
     }
 
     func.m_output += "context->m_callingSystemFunction = descr;\n";
@@ -127,12 +127,12 @@ void hack()
         case ICC_STDCALL:
         case ICC_THISCALL:
         {
-            snprintf(buf, 128, "// %s, %d, %d, %d, %d, %d, %d\n", descr->GetName(), sysFunc->callConv, sysFunc->takesObjByVal, sysFunc->paramSize, sysFunc->hostReturnInMemory, sysFunc->hasAutoHandles, sysFunc->scriptReturnSize);
+            snprintf(buf, 128, "// %s, %d, %d, %d, %d, %d\n", descr->GetName(), sysFunc->callConv, sysFunc->takesObjByVal, sysFunc->paramSize, sysFunc->hostReturnInMemory, (int)sysFunc->paramAutoHandles.GetLength());
             asCDataType &retType = descr->returnType;
             bool isComplex = false;
             if (retType.IsObject() && sysFunc->hostReturnInMemory)
             {
-                isComplex = ((retType.GetObjectType()->flags & COMPLEX_RETURN_MASK) != 0);
+                isComplex = ((retType.GetTypeInfo()->flags & COMPLEX_RETURN_MASK) != 0);
                 if (callConv >= ICC_CDECL && callConv <= ICC_CDECL_OBJLAST)
                     isComplex |= retType.GetSizeInMemoryBytes() >= CDECL_RETURN_SIMPLE_IN_MEMORY_MIN_SIZE;
                 else if (callConv == ICC_THISCALL)
@@ -205,7 +205,7 @@ void hack()
                         func.m_output += buf;
                     }
                 }
-                int flags = retType.GetObjectType()->flags;
+                int flags = retType.GetTypeInfo()->flags;
                 if (flags & asOBJ_APP_CLASS_CONSTRUCTOR)
                 {
                     func.m_output += "\t__MyComplex() {}\n";
@@ -253,13 +253,13 @@ void hack()
                 asCDataType &dt = descr->parameterTypes[n];
                 int flags = 0;
                 if (dt.IsObject())
-                    flags = dt.GetObjectType()->GetFlags();
-                snprintf(buf, 128, "// arg%d: %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d\n", n, descr->GetParamTypeId(n), dt.IsObject(), flags,dt.IsObjectHandle(), dt.IsScriptObject(), dt.IsHandleToConst(), dt.IsReference(), dt.IsPrimitive(), dt.CanBeCopied(), dt.CanBeInstanciated(),  dt.GetSizeInMemoryDWords(), dt.GetSizeOnStackDWords());
+                    flags = dt.GetTypeInfo()->GetFlags();
+                snprintf(buf, 128, "// arg%d: %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d\n", n, dt.IsObject(), flags, dt.IsObjectHandle(), dt.IsScriptObject(), dt.IsHandleToConst(), dt.IsReference(), dt.IsPrimitive(), dt.CanBeCopied(), dt.CanBeInstantiated(), dt.GetSizeInMemoryDWords(), dt.GetSizeOnStackDWords());
                 func.m_output += buf;
 
                 std::string type = "asDWORD";
 #ifdef COMPLEX_OBJS_PASSED_BY_REF
-                bool isComplexRef = dt.IsObject() && ((dt.GetObjectType()->flags & COMPLEX_MASK) != 0);
+                bool isComplexRef = dt.IsObject() && ((dt.GetTypeInfo()->flags & COMPLEX_MASK) != 0);
 #else
                 bool isComplexRef = false;
 #endif
@@ -395,7 +395,7 @@ void hack()
             bool needFree = false;
             asCDataType &dt = descr->parameterTypes[n];
 #ifdef COMPLEX_OBJS_PASSED_BY_REF
-            if( dt.GetObjectType() && dt.GetObjectType()->flags & COMPLEX_MASK ) needFree = true;
+            if( dt.GetTypeInfo() && dt.GetTypeInfo()->flags & COMPLEX_MASK ) needFree = true;
 #endif
 #ifdef AS_LARGE_OBJS_PASSED_BY_REF
             if( dt.GetSizeInMemoryDWords() >= AS_LARGE_OBJ_MIN_SIZE ) needFree = true;
@@ -411,7 +411,7 @@ void hack()
 
 #ifndef AS_CALLEE_DESTROY_OBJ_BY_VAL
                 // If the called function doesn't destroy objects passed by value we must do so here
-                func.m_output += "beh = &descr->parameterTypes[n].GetObjectType()->beh;\n";
+                func.m_output += "beh = &CastToObjectType(descr->parameterTypes[n].GetTypeInfo())->beh;\n";
                 func.m_output += "if( beh->destruct )\n";
                 func.m_output += "    context->m_engine->CallObjectMethod(obj, beh->destruct);\n";
 #endif
@@ -448,8 +448,8 @@ void hack()
             {
                 func.m_output += "if (context->m_regs.objectRegister )\n";
                 func.m_output += "{\n";
-                func.m_output += "    asASSERT( !(descr->returnType.GetObjectType()->flags & asOBJ_NOCOUNT) );\n";
-                func.m_output += "    context->m_engine->CallObjectMethod(context->m_regs.objectRegister, descr->returnType.GetObjectType()->beh.addref);\n";
+                func.m_output += "    asASSERT( !(descr->returnType.GetTypeInfo()->flags & asOBJ_NOCOUNT) );\n";
+                func.m_output += "    context->m_engine->CallObjectMethod(context->m_regs.objectRegister, CastToObjectType(descr->returnType.GetTypeInfo())->beh.addref);\n";
                 func.m_output += "}\n";
             }
         }
@@ -496,8 +496,8 @@ void hack()
                     // initialized the object. However, as it is a soft exception there is
                     // no way for the application to not return a value, so instead we simply
                     // destroy it here, to pretend it was never created.
-                func.m_output += "    if( descr->returnType.GetObjectType()->beh.destruct )\n";
-                func.m_output += "        context->m_engine->CallObjectMethod(retPointer, descr->returnType.GetObjectType()->beh.destruct);\n";
+                func.m_output += "    if( CastToObjectType(descr->returnType.GetTypeInfo())->beh.destruct )\n";
+                func.m_output += "        context->m_engine->CallObjectMethod(retPointer, CastToObjectType(descr->returnType.GetTypeInfo())->beh.destruct);\n";
                 func.m_output += "}\n";
             }
         }
@@ -560,7 +560,7 @@ void hack()
     }
 
     // Release autohandles in the arguments
-    if( sysFunc->hasAutoHandles )
+    if( sysFunc->paramAutoHandles.GetLength() )
     {
         func.m_output += "args = context->m_regs.stackPointer;\n";
         if( callConv >= ICC_THISCALL)
@@ -578,7 +578,7 @@ void hack()
                 func.m_output += "if (*(asPWORD*)&args[spos] != 0 )\n";
                 func.m_output += "{\n";
                 func.m_output += "    // Call the release method on the type\n";
-                func.m_output += "    context->m_engine->CallObjectMethod((void*)*(asPWORD*)&args[spos], descr->parameterTypes[n].GetObjectType()->beh.release);\n";
+                func.m_output += "    context->m_engine->CallObjectMethod((void*)*(asPWORD*)&args[spos], CastToObjectType(descr->parameterTypes[n].GetTypeInfo())->beh.release);\n";
                 func.m_output += "    *(asPWORD*)&args[spos] = 0;\n";
                 func.m_output += "}\n";
             }
@@ -612,4 +612,3 @@ goto_label:
 #ifndef __HACK
 };
 #endif
-
