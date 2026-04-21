@@ -33,6 +33,7 @@ void hack()
 
     int callConv = sysFunc->callConv;
     bool useFallback = false;
+    const AOTCompiler::DirectCallBinding *directCall = FindDirectCall(__id);
     int      popSize           = 0;
     func.m_output += "{\n";
     if( callConv == ICC_GENERIC_FUNC || callConv == ICC_GENERIC_METHOD )
@@ -46,7 +47,12 @@ void hack()
     useFallback = descr->returnType.IsObject() || descr->returnType.IsFuncdef() || callConv >= ICC_THISCALL_OBJLAST;
     for( asUINT n = 0; n < descr->parameterTypes.GetLength() && !useFallback; n++ )
     {
-        if( descr->parameterTypes[n].IsObject() || descr->parameterTypes[n].IsFuncdef() )
+        const asCDataType &paramType = descr->parameterTypes[n];
+        if( paramType.IsFuncdef() )
+            useFallback = true;
+        else if( paramType.IsObject() &&
+                 !paramType.IsReference() &&
+                 !paramType.IsObjectHandle() )
             useFallback = true;
     }
     if( useFallback )
@@ -145,6 +151,10 @@ void hack()
             snprintf(buf, 128, "// %s, %d, %d, %d, %d, %d\n", descr->GetName(), sysFunc->callConv, sysFunc->takesObjByVal, sysFunc->paramSize, sysFunc->hostReturnInMemory, (int)sysFunc->paramAutoHandles.GetLength());
             asCDataType &retType = descr->returnType;
             bool isComplex = false;
+            bool canUseDirectCall = directCall &&
+                                    directCall->cppParamTypes.size() == descr->parameterTypes.GetLength() &&
+                                    !retType.IsObject() &&
+                                    !retType.IsFuncdef();
             if (retType.IsObject() && sysFunc->hostReturnInMemory)
             {
                 isComplex = ((retType.GetTypeInfo()->flags & COMPLEX_RETURN_MASK) != 0);
@@ -273,6 +283,7 @@ void hack()
                 func.m_output += buf;
 
                 std::string type = "asDWORD";
+                std::string argExpr;
 #ifdef COMPLEX_OBJS_PASSED_BY_REF
                 bool isComplexRef = dt.IsObject() && ((dt.GetTypeInfo()->flags & COMPLEX_MASK) != 0);
 #else
@@ -297,27 +308,36 @@ void hack()
                         break;
                     default: assert(0);
                 }
-                funcptr += type;
-                if (dt.IsReference())
+                if (canUseDirectCall)
                 {
-                    funcptr += "&";
-                    if (!dt.IsObjectHandle())
+                    argExpr = BuildDirectCallArgument(dt, directCall->cppParamTypes[n], off);
+                }
+                else
+                {
+                    funcptr += type;
+                    if (dt.IsReference())
+                    {
+                        funcptr += "&";
+                        if (!dt.IsObjectHandle())
+                        {
+                            type += "*";
+                            argsstr += "*";
+                        }
+                    }
+                    if (dt.IsObject() && !dt.IsObjectHandle() && !dt.IsReference() && !isComplexRef)
                     {
                         type += "*";
                         argsstr += "*";
                     }
+                    snprintf(buf, 128, "*(%s*)(&args[%d])", type.c_str(), off);
+                    argExpr = buf;
                 }
-                if (dt.IsObject() && !dt.IsObjectHandle() && !dt.IsReference() && !isComplexRef)
-                {
-                    type += "*";
-                    argsstr += "*";
-                }
-                snprintf(buf, 128, "*(%s*)(&args[%d])", type.c_str(), off);
-                argsstr += buf;
+                argsstr += argExpr;
 
                 if (n < descr->parameterTypes.GetLength()-1)
                 {
-                    funcptr += ", ";
+                    if (!canUseDirectCall)
+                        funcptr += ", ";
                     argsstr += ", ";
                 }
                 off += dt.GetSizeOnStackDWords();
@@ -337,9 +357,16 @@ void hack()
 
 
             std::string call;
-            func.m_output += funcptr;
-            func.m_output += "funcptr a = (funcptr)sysFunc->func;\n";
-            call = "a(" + argsstr + ");\n";
+            if (canUseDirectCall)
+            {
+                call = directCall->cppSymbol + "(" + argsstr + ");\n";
+            }
+            else
+            {
+                func.m_output += funcptr;
+                func.m_output += "funcptr a = (funcptr)sysFunc->func;\n";
+                call = "a(" + argsstr + ");\n";
+            }
             if (!isComplex)
             {
                 if (!retType.IsReference() && (retType.IsFloatType() || (retType.IsDoubleType() && retType.GetSizeInMemoryDWords() == 1)))

@@ -30,6 +30,7 @@
 #include "AOTCompiler.h"
 #include <stdio.h>
 #include <cctype>
+#include <set>
 
 AOTCompiler::AOTCompiler(AOTLinker *linker)
 : m_linker(linker)
@@ -75,6 +76,64 @@ std::string AOTCompiler::GetAOTName(asIScriptFunction *function)
     }
     name += "_";
     return name;
+}
+
+void AOTCompiler::RegisterDirectCall(asIScriptFunction *function,
+                                     const char *cppDeclaration,
+                                     const char *cppSymbol,
+                                     const std::vector<std::string> &cppParamTypes)
+{
+    if (!function || !cppDeclaration || !cppSymbol)
+        return;
+
+    DirectCallBinding binding;
+    binding.cppDeclaration = cppDeclaration;
+    binding.cppSymbol = cppSymbol;
+    binding.cppParamTypes = cppParamTypes;
+    m_directCalls[function->GetId()] = binding;
+}
+
+const AOTCompiler::DirectCallBinding *AOTCompiler::FindDirectCall(int functionId) const
+{
+    std::map<int, DirectCallBinding>::const_iterator it = m_directCalls.find(functionId);
+    if (it == m_directCalls.end())
+        return 0;
+    return &it->second;
+}
+
+std::string AOTCompiler::StripTopLevelReference(const std::string &typeName)
+{
+    std::string result = typeName;
+    while (!result.empty() && std::isspace(static_cast<unsigned char>(result[result.size() - 1])))
+        result.erase(result.size() - 1);
+    while (!result.empty() && result[result.size() - 1] == '&')
+    {
+        result.erase(result.size() - 1);
+        while (!result.empty() && std::isspace(static_cast<unsigned char>(result[result.size() - 1])))
+            result.erase(result.size() - 1);
+    }
+    return result;
+}
+
+std::string AOTCompiler::BuildDirectCallArgument(const asCDataType &dataType, const std::string &cppType, int stackOffset)
+{
+    char buf[256];
+    std::string baseType = StripTopLevelReference(cppType);
+
+    if (dataType.IsReference())
+    {
+        if (dataType.IsObject() && !dataType.IsObjectHandle())
+        {
+            snprintf(buf, sizeof(buf), "*(%s*)(*(asPWORD*)(&args[%d]))", baseType.c_str(), stackOffset);
+            return buf;
+        }
+
+        snprintf(buf, sizeof(buf), "*(%s*)(&args[%d])", baseType.c_str(), stackOffset);
+        return buf;
+    }
+
+    snprintf(buf, sizeof(buf), "*(%s*)(&args[%d])", baseType.c_str(), stackOffset);
+    return buf;
 }
 
 int AOTCompiler::CompileFunction(asIScriptFunction *function, asJITFunction *output)
@@ -138,6 +197,7 @@ int AOTCompiler::CompileFunction(asIScriptFunction *function, asJITFunction *out
 void AOTCompiler::SaveCode(asIBinaryStream *stream)
 {
     std::string output;
+    output += "#include <string>\n";
     output += "#include <as_config.h>\n";
     output += "#include <as_context.h>\n";
     output += "#include <as_scriptengine.h>\n";
@@ -146,6 +206,14 @@ void AOTCompiler::SaveCode(asIBinaryStream *stream)
     output += "#include <as_texts.h>\n";
     output += "#include <aot_config.h>\n";
     output += "\n";
+
+    std::set<std::string> directDeclarations;
+    for (std::map<int, DirectCallBinding>::const_iterator it = m_directCalls.begin(); it != m_directCalls.end(); ++it)
+        directDeclarations.insert(it->second.cppDeclaration);
+    for (std::set<std::string>::const_iterator it = directDeclarations.begin(); it != directDeclarations.end(); ++it)
+        output += *it + "\n";
+    if (!directDeclarations.empty())
+        output += "\n";
 
     for (std::vector<AOTFunction>::iterator i = m_functions.begin(); i < m_functions.end(); i++)
     {

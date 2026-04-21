@@ -24,6 +24,8 @@
 #define __INCLUDED_AOTCOMPILER_H
 
 #include <angelscript.h>
+#include <as_datatype.h>
+#include <map>
 #include <vector>
 #include "AOTFunction.h"
 #include "AOTLinker.h"
@@ -32,18 +34,33 @@
 class AOTCompiler : public asIJITCompiler
 {
 public:
+    struct DirectCallBinding
+    {
+        std::string cppDeclaration;
+        std::string cppSymbol;
+        std::vector<std::string> cppParamTypes;
+    };
+
     AOTCompiler(AOTLinker *linker);
     virtual ~AOTCompiler();
     virtual int CompileFunction(asIScriptFunction *function, asJITFunction *output);
     virtual void ReleaseJITFunction(asJITFunction func);
 
     void SaveCode(asIBinaryStream *stream);
+    void RegisterDirectCall(asIScriptFunction *function,
+                            const char *cppDeclaration,
+                            const char *cppSymbol,
+                            const std::vector<std::string> &cppParamTypes);
 private:
     std::string GetAOTName(asIScriptFunction *func);
+    const DirectCallBinding *FindDirectCall(int functionId) const;
+    static std::string StripTopLevelReference(const std::string &typeName);
+    static std::string BuildDirectCallArgument(const asCDataType &dataType, const std::string &cppType, int stackOffset);
     asIScriptEngine *m_engine;
     AOTLinker *m_linker;
     void ProcessByteCode(asDWORD *byteCode, asUINT offset, asEBCInstr op, AOTFunction &f);
     std::vector<AOTFunction> m_functions;
+    std::map<int, DirectCallBinding> m_directCalls;
 };
 
 #endif
