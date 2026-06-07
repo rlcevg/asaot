@@ -1,8 +1,6 @@
-FIXME: modernize for curernt AngelScript version.
-Used python module modernize (`pip install modernize`) to auto-update `generate.py, run.py`
-Issues:
-* Fails with list-factory functions. AS: "array<string> strs = {};"
-* my_callfunc.h still has parts from older version
+Tested with AngelScript 2.39.0 WIP.
+Used python module `modernize` (`pip install modernize`) to auto-update `generate.py, run.py`.
+`my_callfunc.h` still has parts from older version and test ran faster without it.
 
 === Introduction ===
 

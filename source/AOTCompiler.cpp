@@ -160,6 +160,7 @@ int AOTCompiler::CompileFunction(asIScriptFunction *function, asJITFunction *out
 
     AOTFunction f(function);
 
+    // printf("%s\n", function->GetName());
     // printf("%s\n", function->GetDeclaration(true, true, true));
     f.m_name = GetAOTName(function);
 
@@ -217,6 +218,7 @@ void AOTCompiler::SaveCode(asIBinaryStream *stream)
     output += "#include <as_scriptobject.h>\n";
     output += "#include <as_texts.h>\n";
     output += "#include <aot_config.h>\n";
+    output += "#define AS_NO_EXCEPTIONS 1\n";  // FIXME asBC_Thiscall1
     output += "\n";
 
     std::set<std::string> directDeclarations;

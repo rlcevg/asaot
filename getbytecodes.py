@@ -48,7 +48,6 @@ callscriptre  = re.compile(r"(m_regs\.stackFramePointer\s*=\s*l_fp;\s+?)"\
                            r"(l_\w+\s+=\s*m_regs\.\w+Pointer;)[\s\n\r]+"\
                            r"(l_\w+\s+=\s*m_regs\.\w+Pointer;)[\s\n\r]+"\
                            r"((.*?if.*?)(return;))", re.DOTALL)
-callsystemre  = re.compile(r"l_sp\s*\+=\s*CallSystemFunction\(\s*(\w+)\s*,\s*(\w+)\s*,\s*(\w+)\s*\);")
 callsystemre2 = re.compile(r"l_sp\s*\+=\s*CallSystemFunction\(\s*(\w+)\s*,\s*(\w+)\s*\);")
 
 
@@ -112,7 +111,7 @@ for bytecode in bytecodes:
     emit("            func.m_output += \"\t\t// %s\\n\";" % bytecode[0])
 
     data = bytecode[1]
-    data = re.sub(r"^\s*NEXT_INSTRUCTION\(\);\s*$", "", data, flags=re.MULTILINE)
+    data = data[:data.rfind("NEXT_INSTRUCTION();")]
     data = callscriptre.sub(r"""\1\3
 \2
 \3asCScriptFunction *__func = \6;
@@ -120,7 +119,8 @@ for bytecode in bytecodes:
 #if %d                                                                                                                             __RAW__
             int i = asBC_INTARG(byteCode);                                                                                         __RAW__
             asCScriptFunction *asfunc = ((asCScriptEngine*)m_engine)->GetScriptFunction(i);                                        __RAW__
-            if (asfunc && strcmp("factstub", asfunc->GetName()))                                                                   __RAW__
+            if (asfunc && strcmp("$fact", asfunc->GetName())                                                                       __RAW__
+                && strcmp("$list", asfunc->GetName()) && strncmp("$beh", asfunc->GetName(), 4))                                    __RAW__
             {                                                                                                                      __RAW__
                 func.m_output += "\3asDWORD * expected = l_bc;\\n";                                                                __RAW__
 \12
@@ -141,20 +141,14 @@ for bytecode in bytecodes:
                 func.m_output += "\3__PLACEHOLDER2__\\n";                                                                          __RAW__
             }                                                                                                                      __RAW__
 \3""" % (bytecode[0] == "asBC_CALL" or bytecode[0] == "asBC_ALLOC"), data)
-    # FIXME: asBC_CALL as above doesn't work with list-factory: "array<string> = {};" - FAIL
 
     # FIXME: my_callfunc.h requires more work, still contains old version logic
     # if bytecode[0] == "asBC_CALLSYS":
-    #     match = callsystemre.search(data)
-    #     if match:
-    #         idx = match.group(1)
-    #         object_pointer = match.group(3)
-    #     else:
-    #         match = callsystemre2.search(data)
-    #         if not match:
-    #             raise Exception("CallSystemFunction pattern not found for %s" % bytecode[0])
-    #         idx = match.group(1)
-    #         object_pointer = "0"
+    #     match = callsystemre2.search(data)
+    #     if not match:
+    #         raise Exception("CallSystemFunction pattern not found for %s" % bytecode[0])
+    #     idx = match.group(1)
+    #     object_pointer = "0"  # FIXME: new version doesn't have this param'
     #     if not re.search(r"asBC_\w+ARG", idx):
     #         m2 = re.search(r"%s\s*=\s*(asBC_\w+ARG.*?);" % idx, data);
     #         if not m2:
@@ -163,16 +157,6 @@ for bytecode in bytecodes:
     #     idx = idx.replace("l_bc", "byteCode")
     #
     #     data = "{\nvoid *objectPointer = %s;\n%s}\n" % (object_pointer, data)
-    #     data = callsystemre.sub("""
-    #         char __tmp[128];                                         __RAW__
-    #         snprintf(__tmp, 128, "callsys_%%d_end", callsyscount++); __RAW__
-    #         std::string UNIQUE_CALLSYS_END_LABEL(__tmp);             __RAW__
-    #         #define __id %s                                          __RAW__
-    #         #define goto_label %s_end                                __RAW__
-    #         #include "my_callfunc.h"                                 __RAW__
-    #         #undef goto_label                                        __RAW__
-    #         #undef __id                                              __RAW__
-    #         """ % (idx, bytecode[0]), data)
     #     data = callsystemre2.sub("""
     #         char __tmp[128];                                         __RAW__
     #         snprintf(__tmp, 128, "callsys_%%d_end", callsyscount++); __RAW__
@@ -191,9 +175,7 @@ for bytecode in bytecodes:
 
     lines = data.split("\n")
     for line in lines:
-        dobreak = False
         if "break;" in line:
-            dobreak = True
             line = line.replace("break;", "")
 
 
