@@ -32,13 +32,14 @@ public:
     {
         fclose(m_fp);
     }
-    virtual void Read(void *ptr, asUINT size)
+    virtual int Read(void *ptr, asUINT size)
     {
         // Not really needed.
+        return 0;
     }
-    virtual void Write(const void *ptr, asUINT size)
+    virtual int Write(const void *ptr, asUINT size)
     {
-        fwrite(ptr, size, 1, m_fp);
+        return fwrite(ptr, size, 1, m_fp);
     }
 private:
     FILE *m_fp;

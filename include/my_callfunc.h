@@ -36,11 +36,12 @@ void hack()
     const AOTCompiler::DirectCallBinding *directCall = FindDirectCall(__id);
     int      popSize           = 0;
     func.m_output += "{\n";
+    char buf[128];
+    snprintf(buf, 128, "asCScriptFunction          *descr   = context->m_engine->scriptFunctions[%d];\n", __id);
+    func.m_output += buf;
     if( callConv == ICC_GENERIC_FUNC || callConv == ICC_GENERIC_METHOD )
     {
-        char buf[128];
-        snprintf(buf, 128, "l_sp += context->CallGeneric(%d, objectPointer);\n", __id);
-        func.m_output += buf;
+        func.m_output += "l_sp += context->CallGeneric(descr);\n";
         goto goto_label;
     }
 
@@ -64,9 +65,6 @@ void hack()
     }
     popSize = sysFunc->paramSize;
 
-    char buf[128];
-    snprintf(buf, 128, "asCScriptFunction          *descr   = context->m_engine->scriptFunctions[%d];\n", __id);
-    func.m_output += buf;
     func.m_output += "asSSystemFunctionInterface *sysFunc = descr->sysFuncIntf;\n";
     func.m_output += "asQWORD  retQW             = 0;\n";
     func.m_output += "asQWORD  retQW2            = 0;\n";

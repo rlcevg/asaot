@@ -1,4 +1,7 @@
+from __future__ import absolute_import
+from __future__ import print_function
 import platform
+from six.moves import range
 
 class DataType:
     def __init__(self, asname, cname, bitsize):
@@ -6,7 +9,7 @@ class DataType:
         self.cname = cname
         self.bitsize = bitsize
         if bitsize != 0:
-            self.bytesize = bitsize/8
+            self.bytesize = bitsize // 8
         else:
             self.bytesize = 4
 
@@ -235,7 +238,7 @@ register("thiscall")
 cimplementation += "};\n"
 
 
-print """
+print("""
 #include <angelscript.h>
 #include <assert.h>
 #include <stdint.h>
@@ -345,7 +348,9 @@ void Assert(asIScriptGeneric *gen)
             {
                 printf("func: %%s\\n", function->GetDeclaration());
                 printf("mdle: %%s\\n", function->GetModuleName());
-                printf("sect: %%s\\n", function->GetScriptSectionName());
+                const char* sectName;
+                function->GetDeclaredAt(&sectName, nullptr, nullptr);  // function->GetScriptSectionName()
+                printf("sect: %%s\\n", sectName);
             }
             printf("line: %%d\\n", ctx->GetLineNumber());
             ctx->SetException("Assert failed");
@@ -468,4 +473,4 @@ int main(int argc, char **argv)
     engine = NULL;
     return 0;
 }
-""" % (cimplementation, binding, ascall)
+""" % (cimplementation, binding, ascall))

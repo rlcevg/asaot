@@ -31,6 +31,7 @@
 #include <stdio.h>
 #include <cctype>
 #include <set>
+#include <format>
 
 AOTCompiler::AOTCompiler(AOTLinker *linker)
 : m_linker(linker)
@@ -60,13 +61,23 @@ std::string add(const char *toadd)
 std::string AOTCompiler::GetAOTName(asIScriptFunction *function)
 {
     std::string name;
-    name += "___";
+    name += std::format("___{}_", function->GetId());
     name += add(function->GetModuleName());
     name += "_";
     name += add(function->GetNamespace());
     name += "_";
+    // const char* sectName;
+    // int row, col;
+    // function->GetDeclaredAt(&sectName, &row, &col);  // function->GetScriptSectionName()
     name += add(function->GetObjectName());
     name += "_";
+    // if (function->GetName())
+    // {
+    //     std::string fname = function->GetName();
+    //     if (fname[0] == '~')
+    //         fname = "__destructor__" + fname.substr(1);
+    //     name += fname;
+    // }
     if (function->GetDeclaration())
     {
         std::string fname = function->GetDeclaration(true, true, false);
@@ -149,6 +160,7 @@ int AOTCompiler::CompileFunction(asIScriptFunction *function, asJITFunction *out
 
     AOTFunction f(function);
 
+    // printf("%s\n", function->GetDeclaration(true, true, true));
     f.m_name = GetAOTName(function);
 
     AOTLinker::LinkerResult ret = m_linker->LookupFunction(&f, output);

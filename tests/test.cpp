@@ -27,35 +27,44 @@
 #include <sys/time.h>
 #endif
 #include <scriptstdstring/scriptstdstring.h>
+#include <scriptarray/scriptarray.h>
 #include "common.h"
 
 #define TESTNAME "asJITTest"
 static const char *script =
-"class TestClass                              \n"
-"{                                            \n"
-"    void test() {print(\"hello world!\\n\");}\n"
-"};                                           \n"
-"int add(int a, int b)                        \n"
-"{                                            \n"
-"    return a+b;                              \n"
-"}                                            \n"
-"int mul(int a, int b)                        \n"
-"{                                            \n"
-"    return a*b;                              \n"
-"}                                            \n"
-"int TestInt(int a, int b, int c)             \n"
-"{                                            \n"
-"    TestClass t;                             \n"
-"    t.test();                                \n"
-"    int ret = 0;                             \n"
-"    for (int i = 0; i < 2500; i++)           \n"
-"        for (int j = 0; j < 1000; j++)       \n"
-"        {                                    \n"
-"           ret += add(mul(a,b), mul(a,b));   \n"
-"           ret += mul(c,2);                  \n"
-"        }                                    \n"
-"    return ret;                              \n"
-"}                                            \n";
+R"(class TestClass
+{
+    void test() {print("hello world!\n");}
+};
+int add(int a, int b)
+{
+    return a+b;
+}
+int mul(int a, int b)
+{
+    return a*b;
+}
+string ListFactTest()
+{
+    array<string> strs = {"s1", "s2", "s3"};
+    strs.sortAsc();
+    strs.insertAt(0, "str0");
+    return strs[0];
+}
+int TestInt(int a, int b, int c)
+{
+    TestClass t;
+    t.test();
+    int ret = 0;
+    for (int i = 0; i < 2500; i++)
+        for (int j = 0; j < 1000; j++)
+        {
+           ret += add(mul(a,b), mul(a,b));
+           ret += mul(c,2);
+        }
+    print(ListFactTest() + "\n");
+    return ret;
+})";
 
 #if _MSC_VER
 double GetTime()
@@ -100,6 +109,7 @@ int main(int argc, char ** argv)
     engine->SetEngineProperty(asEP_INCLUDE_JIT_INSTRUCTIONS, 1);
     engine->SetEngineProperty(asEP_OPTIMIZE_BYTECODE, 1);
     RegisterStdString(engine);
+    RegisterScriptArray(engine, true);
     engine->RegisterGlobalFunction("void print(const string& in)", asFUNCTION(print), asCALL_CDECL);
 
 #define AOT_GENERATE_CODE 1

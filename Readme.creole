@@ -1,3 +1,9 @@
+FIXME: modernize for curernt AngelScript version.
+Used python module modernize (`pip install modernize`) to auto-update `generate.py, run.py`
+Issues:
+* Fails with list-factory functions. AS: "array<string> strs = {};"
+* my_callfunc.h still has parts from older version
+
 === Introduction ===
 
 While there already exists an [[http://angelcode.com/angelscript/|AngelScript]] JIT (just in time) Compiler for [[https://github.com/BlindMindStudios/AngelScript-JIT-Compiler|x86 and x86-64]], as well as my old and never finished JIT compiler for [[https://github.com/quarnster/asarmjit|arm]], there is as far as I know no AOT (ahead of time) compiler available.

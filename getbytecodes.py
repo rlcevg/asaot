@@ -43,11 +43,11 @@ commentre     = re.compile(r"^\s*//")
 jumpre        = re.compile(r"\s*l_bc\s*\+=[\s\d+]+asBC")
 argre         = re.compile(r"(\w+ARG\w*)\(l_bc([^)]*)\)")
 callscriptre  = re.compile(r"(m_regs\.stackFramePointer\s*=\s*l_fp;\s+?)"\
-                            "(.*?)([ \t]*)(Call(InterfaceMethod|ScriptFunction))\((.*?)\);(.+?)"\
-                            "(l_\w+\s+=\s*m_regs\.\w+Pointer;)[\s\n\r]+"\
-                            "(l_\w+\s+=\s*m_regs\.\w+Pointer;)[\s\n\r]+"\
-                            "(l_\w+\s+=\s*m_regs\.\w+Pointer;)[\s\n\r]+"\
-                            "((.*?if.*?)(return;))", re.DOTALL)
+                           r"(.*?)([ \t]*)(Call(InterfaceMethod|ScriptFunction))\((.*?)\);(.+?)"\
+                           r"(l_\w+\s+=\s*m_regs\.\w+Pointer;)[\s\n\r]+"\
+                           r"(l_\w+\s+=\s*m_regs\.\w+Pointer;)[\s\n\r]+"\
+                           r"(l_\w+\s+=\s*m_regs\.\w+Pointer;)[\s\n\r]+"\
+                           r"((.*?if.*?)(return;))", re.DOTALL)
 callsystemre  = re.compile(r"l_sp\s*\+=\s*CallSystemFunction\(\s*(\w+)\s*,\s*(\w+)\s*,\s*(\w+)\s*\);")
 callsystemre2 = re.compile(r"l_sp\s*\+=\s*CallSystemFunction\(\s*(\w+)\s*,\s*(\w+)\s*\);")
 
@@ -58,6 +58,7 @@ f = open(angelscript_h)
 data2 = f.read()
 f.close()
 
+data2 = data2.replace("AS_NAMESPACE_QUALIFIER ", "")
 lut = dict(re.findall(r"#define\s*(asBC_\w+ARG[^\(]*)\(.*?\)\s+.*?(\w+)", data2, re.DOTALL))
 def gettypename(macro):
     return lut[macro]
@@ -124,7 +125,7 @@ for bytecode in bytecodes:
                 func.m_output += "\3asDWORD * expected = l_bc;\\n";                                                                __RAW__
 \12
                 func.m_output += "\3    __PLACEHOLDER2__\\n";                                                                      __RAW__
-                func.m_output += "\3if (__func->GetJITFunction() == " + GetAOTName(asfunc) + ")\\n";                              __RAW__
+                func.m_output += "\3if (__func->GetJITFunction() == " + GetAOTName(asfunc) + ")\\n";                               __RAW__
                 func.m_output += "\3{\\n";                                                                                         __RAW__
                 func.m_output += "\3    " + GetAOTName(asfunc) + "(registers, 0);\\n";                                             __RAW__
                 func.m_output += "\3}\\n";                                                                                         __RAW__
@@ -140,46 +141,48 @@ for bytecode in bytecodes:
                 func.m_output += "\3__PLACEHOLDER2__\\n";                                                                          __RAW__
             }                                                                                                                      __RAW__
 \3""" % (bytecode[0] == "asBC_CALL" or bytecode[0] == "asBC_ALLOC"), data)
+    # FIXME: asBC_CALL as above doesn't work with list-factory: "array<string> = {};" - FAIL
 
-    if bytecode[0] == "asBC_CALLSYS":
-        match = callsystemre.search(data)
-        if match:
-            idx = match.group(1)
-            object_pointer = match.group(3)
-        else:
-            match = callsystemre2.search(data)
-            if not match:
-                raise Exception("CallSystemFunction pattern not found for %s" % bytecode[0])
-            idx = match.group(1)
-            object_pointer = "0"
-        if not re.search(r"asBC_\w+ARG", idx):
-            m2 = re.search(r"%s\s*=\s*(asBC_\w+ARG.*?);" % idx, data);
-            if not m2:
-                raise Exception("asBC_*ARG not found... %s\n%s" % (idx, data))
-            idx = m2.group(1)
-        idx = idx.replace("l_bc", "byteCode")
-
-        data = "{\nvoid *objectPointer = %s;\n%s}\n" % (object_pointer, data)
-        data = callsystemre.sub("""
-            char __tmp[128];                                         __RAW__
-            snprintf(__tmp, 128, "callsys_%%d_end", callsyscount++); __RAW__
-            std::string UNIQUE_CALLSYS_END_LABEL(__tmp);             __RAW__
-            #define __id %s                                          __RAW__
-            #define goto_label %s_end                                __RAW__
-            #include "my_callfunc.h"                                 __RAW__
-            #undef goto_label                                        __RAW__
-            #undef __id                                              __RAW__
-            """ % (idx, bytecode[0]), data)
-        data = callsystemre2.sub("""
-            char __tmp[128];                                         __RAW__
-            snprintf(__tmp, 128, "callsys_%%d_end", callsyscount++); __RAW__
-            std::string UNIQUE_CALLSYS_END_LABEL(__tmp);             __RAW__
-            #define __id %s                                          __RAW__
-            #define goto_label %s_end                                __RAW__
-            #include "my_callfunc.h"                                 __RAW__
-            #undef goto_label                                        __RAW__
-            #undef __id                                              __RAW__
-            """ % (idx, bytecode[0]), data)
+    # FIXME: my_callfunc.h requires more work, still contains old version logic
+    # if bytecode[0] == "asBC_CALLSYS":
+    #     match = callsystemre.search(data)
+    #     if match:
+    #         idx = match.group(1)
+    #         object_pointer = match.group(3)
+    #     else:
+    #         match = callsystemre2.search(data)
+    #         if not match:
+    #             raise Exception("CallSystemFunction pattern not found for %s" % bytecode[0])
+    #         idx = match.group(1)
+    #         object_pointer = "0"
+    #     if not re.search(r"asBC_\w+ARG", idx):
+    #         m2 = re.search(r"%s\s*=\s*(asBC_\w+ARG.*?);" % idx, data);
+    #         if not m2:
+    #             raise Exception("asBC_*ARG not found... %s\n%s" % (idx, data))
+    #         idx = m2.group(1)
+    #     idx = idx.replace("l_bc", "byteCode")
+    #
+    #     data = "{\nvoid *objectPointer = %s;\n%s}\n" % (object_pointer, data)
+    #     data = callsystemre.sub("""
+    #         char __tmp[128];                                         __RAW__
+    #         snprintf(__tmp, 128, "callsys_%%d_end", callsyscount++); __RAW__
+    #         std::string UNIQUE_CALLSYS_END_LABEL(__tmp);             __RAW__
+    #         #define __id %s                                          __RAW__
+    #         #define goto_label %s_end                                __RAW__
+    #         #include "my_callfunc.h"                                 __RAW__
+    #         #undef goto_label                                        __RAW__
+    #         #undef __id                                              __RAW__
+    #         """ % (idx, bytecode[0]), data)
+    #     data = callsystemre2.sub("""
+    #         char __tmp[128];                                         __RAW__
+    #         snprintf(__tmp, 128, "callsys_%%d_end", callsyscount++); __RAW__
+    #         std::string UNIQUE_CALLSYS_END_LABEL(__tmp);             __RAW__
+    #         #define __id %s                                          __RAW__
+    #         #define goto_label %s_end                                __RAW__
+    #         #include "my_callfunc.h"                                 __RAW__
+    #         #undef goto_label                                        __RAW__
+    #         #undef __id                                              __RAW__
+    #         """ % (idx, bytecode[0]), data)
 
     if bytecode[0] == "asBC_RET":
         data = retre.sub(r"""\1\2
